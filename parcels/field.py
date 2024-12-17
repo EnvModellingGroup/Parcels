@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Literal
 import dask.array as da
 import numpy as np
 import xarray as xr
+import os
 
 try:
     import firedrake
@@ -50,14 +51,14 @@ from .fieldfilebuffer import (
     DeferredNetcdfFileBuffer,
     NetcdfFileBuffer,
 )
-from .grid import CGrid, Grid, GridType
+from .grid import CGrid, Grid, GridType, FiredrakeGrid
 
 if TYPE_CHECKING:
     from ctypes import _Pointer as PointerType
 
     from parcels.fieldset import FieldSet
 
-__all__ = ["Field", "VectorField", "NestedField"]
+__all__ = ["Field", "VectorField", "NestedField", "FiredrakeField"]
 
 
 def _isParticle(key):
@@ -88,18 +89,16 @@ class AbstractField(object):
     def eval(self, time, x, y):
         """Interpolate field values in space and time.
         """
-
         raise NotImplementedError
 
     def time_index(self, time):
         """Find the index in the time array associated with a given time
         """
-
         raise NotImplementedError
 
 class FiredrakeField(AbstractField):
 
-    def __init__(self, name, file_list, time, variable, cached_data=None, grid=None, index=None):
+    def __init__(self, name, file_list, time, variable, grid=None, index=None):
         if not firedrake_available:
             print("Cannot import firedrake. Check environment is activated")
             import sys
@@ -114,6 +113,10 @@ class FiredrakeField(AbstractField):
         self._index = index # for U or V to pull index 0 or 1 respectively
         self.variable = variable
         self.allow_time_extrapolation = False
+        self.chunksize = None
+        self.gridindexingtype = "unstructured"
+        self.interp_method = "unstructured"
+        self.cast_data_dtype = "float32"
         
 
     @classmethod
@@ -150,13 +153,14 @@ class FiredrakeField(AbstractField):
         time : np.array of floats
             an array of floats which correspond to the times of each file
         """
-
-        # check the times given and the length of files is the same
-        assert(len(file_list) == len(time), "Time needs to corresponds to number of files")
-
         # glob all files in the directory given
         from glob import glob
-        file_list = glob(filename+"*.h5", root_dir=data_folder)
+        file_list = glob(os.path.join(directory,filename+"*.h5"))
+
+        # check the times given and the length of files is the same
+        n_files = len(file_list)
+        n_times = len(time)
+        assert n_files == n_times, "Time needs to corresponds to number of files "+str(n_files)
 
         # check times is a numpy array not list
         if not isinstance(time, np.ndarray):
@@ -191,15 +195,15 @@ class FiredrakeField(AbstractField):
         return cls(
             name,
             file_list,
-            cached_data,
+            time=time,
             grid=grid,
-            timestamps=time,
-            variable=variable
+            variable=variable,
             **kwargs,
         )
 
 
     def __getitem__(self, key):
+        print(key)
         try:
             if _isParticle(key):
                 return self.eval(key.time, key.depth, key.lat, key.lon, key)
@@ -309,7 +313,10 @@ class FiredrakeField(AbstractField):
             return None
 
         return None
-
+    
+    @property
+    def grid(self):
+        return self._grid
 
 class Field(AbstractField):
     """Class that encapsulates access to field data.

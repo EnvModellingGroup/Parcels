@@ -29,6 +29,7 @@ InterpMethodOption = Literal[
     "nearest",
     "bgrid_tracer",
     "cgrid_tracer",
+    "unstructured",
 ]  # corresponds with `tracer_interp_method`
 InterpMethod = (
     InterpMethodOption | dict[str, InterpMethodOption]
@@ -37,7 +38,7 @@ PathLike = str | os.PathLike
 Mesh = Literal["spherical", "flat"]  # corresponds with `mesh`
 VectorType = Literal["3D", "3DSigma", "2D"] | None  # corresponds with `vector_type`
 ChunkMode = Literal["auto", "specific", "failsafe"]  # corresponds with `chunk_mode`
-GridIndexingType = Literal["pop", "mom5", "mitgcm", "nemo", "croco"]  # corresponds with `gridindexingtype`
+GridIndexingType = Literal["pop", "mom5", "mitgcm", "nemo", "croco", "unstrcutured"]  # corresponds with `gridindexingtype`
 UpdateStatus = Literal["not_updated", "first_updated", "updated"]  # corresponds with `_update_status`
 TimePeriodic = float | datetime.timedelta | Literal[False]  # corresponds with `time_periodic`
 NetcdfEngine = Literal["netcdf4", "xarray", "scipy"]

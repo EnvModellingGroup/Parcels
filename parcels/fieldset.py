@@ -10,7 +10,7 @@ import numpy as np
 
 from parcels._compat import MPI
 from parcels._typing import GridIndexingType, InterpMethodOption, Mesh, TimePeriodic
-from parcels.field import DeferredArray, Field, NestedField, VectorField
+from parcels.field import DeferredArray, Field, NestedField, VectorField, FiredrakeField
 from parcels.grid import Grid
 from parcels.gridset import GridSet
 from parcels.particlefile import ParticleFile
@@ -44,7 +44,7 @@ class FieldSet:
         if U:
             self.add_field(U, "U")
             # see #1663 for type-ignore reason
-            self.time_origin = self.U.grid.time_origin if isinstance(self.U, Field) else self.U[0].grid.time_origin  # type: ignore
+            self.time_origin = self.U.grid.time_origin if (isinstance(self.U, Field) or isinstance(self.U, FiredrakeField)) else self.U[0].grid.time_origin  # type: ignore
         if V:
             self.add_field(V, "V")
 
@@ -292,8 +292,8 @@ class FieldSet:
                         "C-grid velocities require longitude and latitude dimensions at least length 2"
                     )
 
-            if U.gridindexingtype not in ["nemo", "mitgcm", "mom5", "pop", "croco"]:
-                raise ValueError("Field.gridindexing has to be one of 'nemo', 'mitgcm', 'mom5', 'pop' or 'croco'")
+            if U.gridindexingtype not in ["nemo", "mitgcm", "mom5", "pop", "croco", "unstructured"]:
+                raise ValueError("Field.gridindexing has to be one of 'nemo', 'mitgcm', 'mom5', 'pop' or 'croco', 'unstructured'")
 
             if V.gridindexingtype != U.gridindexingtype or (W and W.gridindexingtype != U.gridindexingtype):
                 raise ValueError("Not all velocity Fields have the same gridindexingtype")

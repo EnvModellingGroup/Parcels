@@ -59,11 +59,15 @@ class AbstractGrid(object):
 
 class FiredrakeGrid(AbstractGrid):
 
-    def __init__(self, time, timeOrigin, mesh, allow_time_extrapolation=False):
+    def __init__(self, time, time_origin, mesh, allow_time_extrapolation=False):
         self._mesh = mesh
         self.time = time
         self._time_origin = TimeConverter() if time_origin is None else time_origin
-        assert isinstance(self.time_origin, TimeConverter), "time_origin needs to be a TimeConverter object"
+        assert isinstance(self._time_origin, TimeConverter), "time_origin needs to be a TimeConverter object"
+        self.lon = None
+        self.lat = None
+        self.depth = None
+        self.chunksize = None
 
 
     def __repr__(self):
@@ -88,7 +92,16 @@ class FiredrakeGrid(AbstractGrid):
 
         return FiredrakeGrid(time, time_origin=time_origin, mesh=mesh, **kwargs)
 
+    @property
+    def time_origin(self):
+        return self._time_origin
 
+    def _check_zonal_periodic(self):
+        return
+
+    @property
+    def defer_load(self):
+        return False
 
 class Grid(AbstractGrid):
     """Grid class that defines a (spatial and temporal) grid on which Fields are defined."""

@@ -21,8 +21,11 @@ class GridSet:
             sameGrid = True
             if grid.time_origin != g.time_origin:
                 continue
+
             for attr in ["lon", "lat", "depth", "time"]:
                 gattr = getattr(g, attr)
+                if gattr is None:
+                    continue
                 gridattr = getattr(grid, attr)
                 if gattr.shape != gridattr.shape or not np.allclose(gattr, gridattr):
                     sameGrid = False

@@ -20,6 +20,8 @@ __all__ = [
     "CurvilinearSGrid",
     "CGrid",
     "Grid",
+    "AbstractGrid",
+    "FiredrakeGrid",
 ]
 
 
@@ -39,7 +41,56 @@ class CGrid(Structure):
     _fields_ = [("gtype", c_int), ("grid", c_void_p)]
 
 
-class Grid:
+class AbstractGrid(object):
+    """Parent for classes that hold the Eulerian field data."""
+
+    @property
+    def fields(self):
+        """Returns a list of all the :class:`parcels.field.Field` or
+        `FiredrakeField` objects associated with this grid"""
+
+        raise NotImplementedError
+
+    def eval(self, x, y):
+        """Evaluate the zonal and meridional velocities (u,v) at a point (x,y)
+        """
+
+        raise NotImplementedError
+
+class FiredrakeGrid(AbstractGrid):
+
+    def __init__(self, time, timeOrigin, mesh, allow_time_extrapolation=False):
+        self._mesh = mesh
+        self.time = time
+        self._time_origin = TimeConverter() if time_origin is None else time_origin
+        assert isinstance(self.time_origin, TimeConverter), "time_origin needs to be a TimeConverter object"
+
+
+    def __repr__(self):
+        with np.printoptions(threshold=5, suppress=True, linewidth=120, formatter={"float": "{: 0.2f}".format}):
+            return (
+                f"{type(self).__name__}("
+                f"time={self.time!r}, "
+                f"time_origin={self.time_origin!r}, mesh={self.mesh!r})"
+            )
+
+    @property
+    def mesh(self):
+        return self._mesh
+
+    @staticmethod
+    def create_grid(
+        time,
+        time_origin,
+        mesh: Mesh,
+        **kwargs,
+    ):
+
+        return FiredrakeGrid(time, time_origin=time_origin, mesh=mesh, **kwargs)
+
+
+
+class Grid(AbstractGrid):
     """Grid class that defines a (spatial and temporal) grid on which Fields are defined."""
 
     def __init__(

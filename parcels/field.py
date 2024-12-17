@@ -10,6 +10,13 @@ import dask.array as da
 import numpy as np
 import xarray as xr
 
+try:
+    import firedrake
+    firedrake_available = True
+except ImportError:
+    firedrake_available = False
+
+
 import parcels.tools.interpolation_utils as i_u
 from parcels._typing import (
     GridIndexingType,
@@ -75,8 +82,236 @@ def _deal_with_errors(error, key, vector_type: VectorType):
     else:
         return 0
 
+class AbstractField(object):
+    """Parent for classes that encapsulate access to field data."""
 
-class Field:
+    def eval(self, time, x, y):
+        """Interpolate field values in space and time.
+        """
+
+        raise NotImplementedError
+
+    def time_index(self, time):
+        """Find the index in the time array associated with a given time
+        """
+
+        raise NotImplementedError
+
+class FiredrakeField(AbstractField):
+
+    def __init__(self, name, file_list, time, variable, cached_data=None, grid=None, index=None):
+        if not firedrake_available:
+            print("Cannot import firedrake. Check environment is activated")
+            import sys
+            sys.exit(-1)
+
+        self.name = name
+        self.file_list = file_list
+        self._cached_data = [None] * 3 # we cache three data sets for interpolation
+        self._cached_index = [None] * 3
+        self._grid = grid
+        self.time = np.zeros(1, dtype=np.float64) if time is None else time
+        self._index = index # for U or V to pull index 0 or 1 respectively
+        self.variable = variable
+        self.allow_time_extrapolation = False
+        
+
+    @classmethod
+    def from_h5(
+        cls,
+        directory,
+        filename,
+        variable,
+        name,
+        grid=None,
+        mesh: Mesh = "flat",
+        time=None,
+        **kwargs,
+    ) -> "FiredrakeField":
+        """Create field from firedrake h5 checkpoint files.
+
+        Parameters
+        ----------
+        directory : str
+            directory where the h5 files are kept
+        filename : str
+            the filename stub for the h5 files, Velocity2d or Elevation2d most likely
+        variable : str
+            Variable/function name used in the h5 files (uv_2d or elev_2d most likely)
+        grid : Grid class 
+            that matches this field or None to create a grid
+        mesh :
+            String indicating the type of mesh coordinates and
+            units used during velocity interpolation:
+
+            1. spherical (default): Lat and lon in degree, with a
+               correction for zonal velocity U near the poles.
+            2. flat: No conversion, lat/lon are assumed to be in m.
+        time : np.array of floats
+            an array of floats which correspond to the times of each file
+        """
+
+        # check the times given and the length of files is the same
+        assert(len(file_list) == len(time), "Time needs to corresponds to number of files")
+
+        # glob all files in the directory given
+        from glob import glob
+        file_list = glob(filename+"*.h5", root_dir=data_folder)
+
+        # check times is a numpy array not list
+        if not isinstance(time, np.ndarray):
+            time = np.array(time)
+
+        # h5 files should be in human sorted order as they are given 00150, 00151 filenames
+        file_list.sort()
+
+        # get the first file and extract the mesh
+        with firedrake.CheckpointFile(file_list[0], "r") as f:
+            # in parallel this will be an issue TODO
+            firedrake_mesh = f.load_mesh()
+            # check we can find the function too
+            func = f.load_function(firedrake_mesh, variable)
+
+        # set up the grid
+        if grid is None:
+            time_origin = TimeConverter(time[0])
+            grid = FiredrakeGrid.create_grid(time,None,firedrake_mesh)
+        else:
+            # need to pull times form the existing grid and check against the files here
+            pass
+
+        index = None
+        if name == "U":
+            index=0
+        elif name == "V":
+            index=0
+
+        cached_data = list(np.zeros_like(time))
+
+        return cls(
+            name,
+            file_list,
+            cached_data,
+            grid=grid,
+            timestamps=time,
+            variable=variable
+            **kwargs,
+        )
+
+
+    def __getitem__(self, key):
+        try:
+            if _isParticle(key):
+                return self.eval(key.time, key.depth, key.lat, key.lon, key)
+            else:
+                return self.eval(*key)
+        except tuple(AllParcelsErrorCodes.keys()) as error:
+            return _deal_with_errors(error, key, vector_type=None)
+
+    def eval(self, time, y, x, particle=None):
+        """Interpolate field values in space and time.
+
+        We interpolate linearly in time and apply implicit unit
+        conversion to the result. Note that we defer to
+        scipy.interpolate to perform spatial interpolation.
+        """
+        ti  = self._time_index(time)
+        if ti < self._grid.tdim - 1 and time > self._grid.time[ti]:
+            f0 = self._spatial_interpolation(ti, y, x, particle=particle)
+            f1 = self._spatial_interpolation(ti + 1, y, x, particle=particle)
+            t0 = self._grid.time[ti]
+            t1 = self._grid.time[ti + 1]
+            value = f0 + (f1 - f0) * ((time - t0) / (t1 - t0))
+        else:
+            # Skip temporal interpolation if time is outside
+            # of the defined time range or if we have hit an
+            # exact value in the time array.
+            value = self._spatial_interpolation(ti, y, x, self._grid.time[ti], particle=particle)
+
+        return value
+
+    def _spatial_interpolation(self, ti, x, y, particle=None):
+        """Evaluate the 'field' at the time and coords given."""
+        # this is not the fastest way of doing this as "at" can
+        # cope with a list of points. A VOM may also work better than "at" in 
+        # parallel. That would mean rewriting the kernels though.
+        func = self._cached_data[ti]
+        value = func.at((x,y))
+        if self_.index:
+            return value[:,self._index] # if uv field, extract correct index
+        else:
+            return value
+
+    def _time_index(self, time):
+        """Find the index in the time array associated with a given time
+        Note that we normalize to either the first or the last index
+        if the sampled value is outside the time value range.
+        """
+        if not self.allow_time_extrapolation and (time < self.time[0] or time > self.time[-1]):
+            raise TimeExtrapolationError(time, field=self)
+        time_index = self.time <= time
+        if time_index.all():
+            # If given time > last known grid time, use
+            # the last grid frame without interpolation
+            return len(self.time) - 1
+        else:
+            return time_index.argmin() - 1 if time_index.any() else 0
+
+
+    # need some kind of time chunking, so can have 3 fields loaded at one time (past, around current and future
+    # list of "times", with most set to None. Would need to then add the function to the appropriate index
+    # and remember to delete and garbage collect as we go
+    def computeTimeChunk(self, time, dt=1):
+        # ignore dt; assume forward in time....
+
+        def load_checkpoint(ti):
+            # load in the file at ti and store in cached_data
+            with firedrake.CheckpointFile(self.file_list[ti], "r") as f:
+                # in parallel this will be an issue TODO
+                # check we can find the function too
+                func = f.load_function(self._grid.mesh, self.variable)
+                return func
+
+        # get the time index for the time requested
+        ti = self._time_index(time)
+        #print(ti, self._cached_index)
+
+        # is this the central index in cached_index? If so we don't need to do anything
+        if ti == self._cached_index[1]:
+            return None
+
+        if not ti in self._cached_index:
+            # nothing is in or we've somehow managed to jump in time...so load the previous step, ti and next step
+            if not ti == 0:
+                self._cached_data[0] = load_checkpoint(ti-1)
+                self._cached_index[0] = ti-1
+            self._cached_data[1] = load_checkpoint(ti)
+            self._cached_index[1] = ti
+            if not ti > len(self.time)-2:
+                self._cached_data[2] = load_checkpoint(ti+1)
+                self._cached_index[2] = ti+1
+            else:
+                self._cached_data[2] = None
+                self._cached_index[2] = None
+            return None
+
+        if ti == self._cached_index[2]:
+            self._cached_index[0] = self._cached_index[1]
+            self._cached_data[0] = self._cached_index[1]
+            self._cached_index[1] = self._cached_index[2]
+            self._cached_data[1] = self._cached_index[2]
+            if not ti > len(self.time)-2:
+                self._cached_data[2] = load_checkpoint(ti+1)
+                self._cached_index[2] = ti+1
+            else:
+                self._cached_data[2] = None
+                self._cached_index[2] = None
+            return None
+
+        return None
+
+
+class Field(AbstractField):
     """Class that encapsulates access to field data.
 
     Parameters

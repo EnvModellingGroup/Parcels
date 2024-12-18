@@ -70,9 +70,10 @@ class FiredrakeGrid(AbstractGrid):
         self.chunksize = None
         self.time_full = time
         self.tdim = len(time)
+        self._chunk_not_loaded = 0
+        self._load_chunk = []
+
         
-
-
     def __repr__(self):
         with np.printoptions(threshold=5, suppress=True, linewidth=120, formatter={"float": "{: 0.2f}".format}):
             return (

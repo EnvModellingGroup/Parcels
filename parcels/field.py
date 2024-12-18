@@ -190,7 +190,7 @@ class FiredrakeField(AbstractField):
         if name == "U":
             index=0
         elif name == "V":
-            index=0
+            index=1
 
         cached_data = list(np.zeros_like(time))
 
@@ -309,9 +309,9 @@ class FiredrakeField(AbstractField):
 
         if ti == self._cached_index[2]:
             self._cached_index[0] = self._cached_index[1]
-            self._cached_data[0] = self._cached_index[1]
+            self._cached_data[0] = self._cached_data[1]
             self._cached_index[1] = self._cached_index[2]
-            self._cached_data[1] = self._cached_index[2]
+            self._cached_data[1] = self._cached_data[2]
             if not ti > len(self.time)-2:
                 self._cached_data[2] = load_checkpoint(ti+1)
                 self._cached_index[2] = ti+1

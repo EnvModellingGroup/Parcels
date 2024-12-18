@@ -41,10 +41,15 @@ pset = ParticleSet.from_list(fieldset=fieldset, pclass=ScipyParticle,
                              lat=all_points_y)
 
 
-output_file = pset.ParticleFile(name="Trajectory.zarr", outputdt=timedelta(minutes=10))
+output_file = pset.ParticleFile(name="Trajectory.zarr", outputdt=timedelta(seconds=10))
 pset.execute([AdvectionRK4,DeleteErrorParticle],
-             runtime=timedelta(seconds=600),#, 16000, 171900, 1255885
-             dt=timedelta(minutes=1),
+             runtime=timedelta(seconds=6000),#, 16000, 171900, 1255885
+             dt=timedelta(seconds=10),
              output_file=output_file)
 
+ds = xr.open_zarr("Trajectory.zarr")
 
+plt.plot(ds.lon.T, ds.lat.T, ".-")
+plt.xlabel("Zonal distance [m]")
+plt.ylabel("Meridional distance [m]")
+plt.show()

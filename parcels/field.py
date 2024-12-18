@@ -245,7 +245,10 @@ class FiredrakeField(AbstractField):
         # parallel. That would mean rewriting the kernels though.
         cache_index = self._cached_index.index(ti)
         func = self._cached_data[cache_index]
-        value = func.at((x,y))
+        try:
+            value = func.at((x,y))
+        except firedrake.function.PointNotInDomainError:
+            raise FieldOutOfBoundError(x, y, 0, field=self)
         if not self._index is None:
             return value[self._index] # if uv field, extract correct index
         else:

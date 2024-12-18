@@ -66,8 +66,11 @@ class FiredrakeGrid(AbstractGrid):
         assert isinstance(self._time_origin, TimeConverter), "time_origin needs to be a TimeConverter object"
         self.lon = None
         self.lat = None
-        self.depth = None
+        self.depth = np.zeros(1, dtype=np.float32)
         self.chunksize = None
+        self.time_full = time
+        self.tdim = len(time)
+        
 
 
     def __repr__(self):

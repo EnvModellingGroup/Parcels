@@ -114,9 +114,11 @@ class FiredrakeField(AbstractField):
         self.variable = variable
         self.allow_time_extrapolation = False
         self.chunksize = None
-        self.gridindexingtype = "unstructured"
-        self.interp_method = "unstructured"
+        self.gridindexingtype = "nemo"
+        self.interp_method = "linear"
         self.cast_data_dtype = "float32"
+        self.ccode_name = name
+        self.units = UnitConverter()
         
 
     @classmethod
@@ -198,12 +200,12 @@ class FiredrakeField(AbstractField):
             time=time,
             grid=grid,
             variable=variable,
+            index=index,
             **kwargs,
         )
 
 
     def __getitem__(self, key):
-        print(key)
         try:
             if _isParticle(key):
                 return self.eval(key.time, key.depth, key.lat, key.lon, key)
@@ -212,13 +214,15 @@ class FiredrakeField(AbstractField):
         except tuple(AllParcelsErrorCodes.keys()) as error:
             return _deal_with_errors(error, key, vector_type=None)
 
-    def eval(self, time, y, x, particle=None):
+    def eval(self, time, z, y, x, particle=None, applyConversion=False):
         """Interpolate field values in space and time.
 
         We interpolate linearly in time and apply implicit unit
         conversion to the result. Note that we defer to
         scipy.interpolate to perform spatial interpolation.
         """
+
+        self.computeTimeChunk(time)
         ti  = self._time_index(time)
         if ti < self._grid.tdim - 1 and time > self._grid.time[ti]:
             f0 = self._spatial_interpolation(ti, y, x, particle=particle)
@@ -230,19 +234,20 @@ class FiredrakeField(AbstractField):
             # Skip temporal interpolation if time is outside
             # of the defined time range or if we have hit an
             # exact value in the time array.
-            value = self._spatial_interpolation(ti, y, x, self._grid.time[ti], particle=particle)
+            value = self._spatial_interpolation(ti, y, x, particle=particle)
 
         return value
 
-    def _spatial_interpolation(self, ti, x, y, particle=None):
+    def _spatial_interpolation(self, ti, y, x, particle=None):
         """Evaluate the 'field' at the time and coords given."""
         # this is not the fastest way of doing this as "at" can
         # cope with a list of points. A VOM may also work better than "at" in 
         # parallel. That would mean rewriting the kernels though.
-        func = self._cached_data[ti]
+        cache_index = self._cached_index.index(ti)
+        func = self._cached_data[cache_index]
         value = func.at((x,y))
-        if self_.index:
-            return value[:,self._index] # if uv field, extract correct index
+        if not self._index is None:
+            return value[self._index] # if uv field, extract correct index
         else:
             return value
 
@@ -317,6 +322,9 @@ class FiredrakeField(AbstractField):
     @property
     def grid(self):
         return self._grid
+
+    def _ccode_convert(self, _, z, y, x):
+        return self.units.ccode_to_target(x, y, z)
 
 class Field(AbstractField):
     """Class that encapsulates access to field data.

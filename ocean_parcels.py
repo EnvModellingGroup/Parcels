@@ -6,8 +6,6 @@ import numpy as np
 import xarray as xr
 import random
 import numpy as np
-from scipy import stats
-import matplotlib as mpl
 from parcels import (
     AdvectionRK4,
     FieldSet,
@@ -16,8 +14,6 @@ from parcels import (
     Field
 )
 from parcels import FiredrakeField
-
-from matplotlib.colors import LogNorm
 
 
 directory = "tests/test_data/output/hdf5/"
@@ -28,8 +24,8 @@ V = FiredrakeField.from_h5(directory, "Velocity2d", "uv_2d", "V", time=time)
 fieldset = FieldSet(U, V)
 
 # generate our random points
-all_points_x = [10]
-all_points_y = [500]
+all_points_x = [1, 100, 500]
+all_points_y = [500, 450, 400]
 
 def DeleteErrorParticle(particle, fieldset, time):
     if particle.state >= 40:  # deletes every particle that throws an error

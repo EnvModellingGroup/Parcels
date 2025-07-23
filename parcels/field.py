@@ -119,7 +119,11 @@ class FiredrakeField(AbstractField):
         self.cast_data_dtype = "float32"
         self.ccode_name = name
         self.units = UnitConverter()
-        
+        self.wetting = False
+        self.bathymetry_data = None
+        self.particle_cache = [None] * 3
+        self.particle_times = [None] * 3
+
 
     @classmethod
     def from_h5(
@@ -162,7 +166,10 @@ class FiredrakeField(AbstractField):
         # check the times given and the length of files is the same
         n_files = len(file_list)
         n_times = len(time)
-        assert n_files == n_times, "Time needs to corresponds to number of files "+str(n_files)
+        assert n_files == n_times, ("Time needs to corresponds to number of files "+
+                                    str(n_files)+" file, "+
+                                    str(n_times)+" times")
+
 
         # check times is a numpy array not list
         if not isinstance(time, np.ndarray):
@@ -204,6 +211,15 @@ class FiredrakeField(AbstractField):
             **kwargs,
         )
 
+    def add_wetting_and_drying(self, bathyemtry_file, bathymetry_name, elevation_field):
+        
+        # check we can access the bathy h5 file
+        with firedrake.CheckpointFile(bathyemtry_file, "r") as f:
+            func = f.load_function(self.grid.mesh, bathymetry_name)
+
+        self.wetting = True
+        self.bathymetry_data = func
+        self.elevation = elevation_field
 
     def __getitem__(self, key):
         try:
@@ -224,18 +240,32 @@ class FiredrakeField(AbstractField):
 
         self.computeTimeChunk(time)
         ti  = self._time_index(time)
+        multiplier = 1.0
+        elev = 0
+        bathy = 0
+        if (self.wetting):
+            try:
+                bathy = self.bathymetry_data.at((x,y))
+            except firedrake.function.PointNotInDomainError:
+                raise FieldOutOfBoundError(x, y, 0, field=self)
+            elev = self.elevation.eval(time, z, y, x, particle=None)
+            if (elev < -bathy):
+                multiplier = 0.0
+
         if ti < self._grid.tdim - 1 and time > self._grid.time[ti]:
             f0 = self._spatial_interpolation(ti, y, x, particle=particle)
             f1 = self._spatial_interpolation(ti + 1, y, x, particle=particle)
             t0 = self._grid.time[ti]
             t1 = self._grid.time[ti + 1]
-            value = f0 + (f1 - f0) * ((time - t0) / (t1 - t0))
+            value = multiplier * (f0 + (f1 - f0) * ((time - t0) / (t1 - t0)))
         else:
             # Skip temporal interpolation if time is outside
             # of the defined time range or if we have hit an
             # exact value in the time array.
-            value = self._spatial_interpolation(ti, y, x, particle=particle)
+            value = multiplier*self._spatial_interpolation(ti, y, x, particle=particle)
 
+        #print(self.name, ti, time, x, y, elev, bathy, multiplier, value)
+        
         return value
 
     def _spatial_interpolation(self, ti, y, x, particle=None):
